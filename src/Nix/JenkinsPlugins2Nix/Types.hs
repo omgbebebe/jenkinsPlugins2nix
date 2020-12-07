@@ -1,3 +1,5 @@
+{-# language OverloadedStrings #-}
+{-# language DeriveGeneric #-}
 {-# LANGUAGE StrictData #-}
 -- |
 -- Module    : Nix.JenkinsPlugins2Nix.Types
@@ -13,11 +15,18 @@ module Nix.JenkinsPlugins2Nix.Types
   , PluginResolution(..)
   , RequestedPlugin(..)
   , ResolutionStrategy(..)
+  , PluginMeta(..)
+  , Dependency(..)
+  , PluginName(..)
+  , Version(..)
   ) where
 
 import qualified Crypto.Hash as Hash
 import           Data.Set (Set)
 import           Data.Text (Text)
+import           GHC.Generics
+-- aeson
+import           Data.Aeson
 
 -- | The way in which version of dependencies will be picked.
 data ResolutionStrategy =
@@ -110,3 +119,43 @@ data Manifest = Manifest
     -- | @Plugin-Developers@.
   , plugin_developers :: !(Set Text)
   } deriving (Show, Eq, Ord)
+
+type Version = Text
+type Url = Text
+type PluginName = Text
+
+data PluginMeta = PluginMeta
+  { pluginName :: PluginName
+  , pluginTitle :: Text
+  , pluginVersion :: Version
+  , pluginUrl :: Url
+  , pluginRequiredCore :: Version
+  , pluginExcerpt :: Text
+  , pluginDependencies :: [Dependency]
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON PluginMeta where
+  parseJSON = withObject "Plugin" $ \v -> PluginMeta
+    <$> v .: "name"
+    <*> v .: "title"
+    <*> v .: "version"
+    <*> v .: "url"
+    <*> v .: "requiredCore"
+    <*> v .: "excerpt"
+    <*> v .: "dependencies"
+
+data Dependency = Dependency
+  { depName :: PluginName
+  , depTitle :: Text
+  , depOptional :: Bool
+  , depVersion :: Version
+  , depImplied :: Bool
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON Dependency where
+  parseJSON = withObject "Dependency" $ \v -> Dependency
+    <$> v .: "name"
+    <*> v .: "title"
+    <*> v .: "optional"
+    <*> v .: "version"
+    <*> v .: "implied"

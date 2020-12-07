@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module    : Nix.JenkinsPlugins2Nix
 -- Copyright : (c) 2017 Mateusz Kowalczyk
@@ -27,8 +28,29 @@ import           Nix.Expr.Shorthands           ((@@))
 import qualified Nix.JenkinsPlugins2Nix.Parser as Parser
 import           Nix.JenkinsPlugins2Nix.Types
 import qualified Nix.Pretty                    as Nix
+import           System.Directory              (getXdgDirectory, XdgDirectory(..), findFile, createDirectoryIfMissing)
+import           System.FilePath.Posix         ((</>))
 import           System.IO                     (stderr)
 import           Text.Printf                   (printf)
+-- aeson
+import Data.Aeson
+
+cacheDir :: IO FilePath
+cacheDir = do
+  dir <- getXdgDirectory XdgCache "jenkinsPlugins2nix"
+  createDirectoryIfMissing False dir
+  pure $ dir
+
+-- | Resolve plugin latest version to exact version
+resolveLatestVersion :: PluginName -> IO Version
+resolveLatestVersion name = do
+  req <- HTTP.parseRequest $ Text.unpack $ "https://plugins.jenkins.io/api/plugin/" <> name
+  res <- HTTP.httpLBS req
+  let plugin =
+        case eitherDecode $ HTTP.getResponseBody res of
+          Left e -> error $ "Failed to parse response: " <> e
+          Right p -> p
+  pure $ pluginVersion plugin
 
 -- | Get the download URL of the plugin we're looking for.
 getPluginUrl :: RequestedPlugin -> Text
@@ -45,9 +67,23 @@ getPluginUrl (RequestedPlugin { requested_name = n, requested_version = Nothing 
 downloadPlugin :: RequestedPlugin -> IO (Either String Plugin)
 downloadPlugin p = do
   let fullUrl = getPluginUrl p
+      pluginName = requested_name p
   Text.hPutStrLn stderr $ "Downloading " <> fullUrl
-  req <- HTTP.parseRequest $ Text.unpack fullUrl
-  archiveLBS <- HTTP.getResponseBody <$> HTTP.httpLBS req
+  cache <- cacheDir
+  pv <- case requested_version p of
+    Just x -> pure x
+    Nothing -> resolveLatestVersion pluginName
+  let fileName = Text.unpack $ pluginName <> "-" <> pv <> ".hpi"
+  file <- findFile [cache] fileName
+  archiveLBS <-
+    case file of
+      Nothing -> do
+        req <- HTTP.parseRequest $ Text.unpack fullUrl
+        content <- HTTP.getResponseBody <$> HTTP.httpLBS req
+        BSL.writeFile (cache </> fileName) content
+        pure content
+      Just f -> BSL.readFile f
+
   let manifestFileText = fmap (Text.decodeUtf8 . BSL.toStrict . Zip.fromEntry)
                        $ Zip.findEntryByPath "META-INF/MANIFEST.MF"
                        $ Zip.toArchive archiveLBS
