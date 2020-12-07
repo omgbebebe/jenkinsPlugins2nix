@@ -1,5 +1,17 @@
-{ nixpkgs ? import <nixpkgs> {}, compiler ? "ghc864" }:
+{ nixpkgs ? import <nixpkgs> {}, unstable ? import <unstable> {}, compiler ? "ghc8101" }:
+with nixpkgs;
 let
-  drv = import ./default.nix { inherit nixpkgs compiler; };
+  inherit (nixpkgs) pkgs;
+  myghc = unstable.haskell.packages.${compiler}.ghcWithPackages (ps: with ps; [
+          cabal-install
+        ]);
+  libs = [ zlib libsodium ];
 in
-  if nixpkgs.pkgs.lib.inNixShell then drv.env else drv
+pkgs.stdenv.mkDerivation {
+  name = "haskelldevenv";
+  buildInputs = [ pkgconfig myghc ] ++ libs;
+  shellHook = ''
+    eval $(egrep ^export ${ghc}/bin/ghc)
+    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${stdenv.lib.makeLibraryPath libs}"
+  '';
+}
