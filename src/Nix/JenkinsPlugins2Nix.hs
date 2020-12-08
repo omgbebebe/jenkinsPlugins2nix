@@ -16,6 +16,7 @@ import qualified Crypto.Hash                   as Hash
 import qualified Data.ByteString.Lazy          as BSL
 import           Data.Map.Strict               (Map)
 import qualified Data.Map.Strict               as Map
+import qualified Data.Set                      as Set
 import           Data.Monoid                   ((<>))
 import           Data.Text                     (Text)
 import qualified Data.Text                     as Text
@@ -113,6 +114,7 @@ downloadPluginsRecursive
 downloadPluginsRecursive strategy uPs m p = if Map.member (requested_name p) m
   then return m
   else do
+    MTL.liftIO $ Text.hPutStrLn stderr $ Text.pack $ show p
         -- Adjust the requested plugin based on whether it was
         -- specifically requested by the user and on resolution
         -- strategy.
@@ -136,7 +138,11 @@ downloadPluginsRecursive strategy uPs m p = if Map.member (requested_name p) m
                               , requested_version = Just $! plugin_dependency_version p'
                               })
       (Map.insert (requested_name p) plugin m)
-      (plugin_dependencies $ manifest plugin)
+      (Set.filter
+        (\x -> case plugin_dependency_resolution x of
+            Mandatory -> True
+            _ -> False
+        ) $ plugin_dependencies $ manifest plugin)
 
 -- | Pretty-print nix expression for all the given plugins and their
 -- dependencies that the user asked for.
